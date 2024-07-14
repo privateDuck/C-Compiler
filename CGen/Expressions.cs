@@ -36,15 +36,12 @@ namespace ABT {
             Env.Entry entry = this.Env.Find(this.Name).Value;
 
             Int32 offset = entry.Offset;
-            //if (entry.Kind == Env.EntryKind.STACK) {
-            //    offset = -offset;
-            //}
 
             switch (entry.Kind) {
                 case Env.EntryKind.ENUM:
                     // 1. If the variable is an enum constant,
                     //    return the Value in %eax.
-                    state.MOVL(offset, Reg.EAX);
+                    state.MOV(offset, Reg.EAX);
                     return Reg.EAX;
 
                 case Env.EntryKind.FRAME:
@@ -56,61 +53,27 @@ namespace ABT {
                         case ExprTypeKind.ULONG:
                         case ExprTypeKind.POINTER:
                             // %eax = offset(%ebp)
-                            state.MOVL(offset, Reg.EBP, Reg.EAX);
+                            state.MOV(offset, Reg.EBP, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.FLOAT:
-                            // %st(0) = offset(%ebp)
-                            state.FLDS(offset, Reg.EBP);
-                            return Reg.ST0;
-
                         case ExprTypeKind.DOUBLE:
-                            // %st(0) = offset(%ebp)
-                            state.FLDL(offset, Reg.EBP);
-                            return Reg.ST0;
-
                         case ExprTypeKind.STRUCT_OR_UNION:
-                            // %eax = address
-                            state.LEA(offset, Reg.EBP, Reg.EAX);
-                            return Reg.EAX;
-
-                        //state.LEA(offset, Reg.EBP, Reg.ESI); // source address
-                        //state.CGenExpandStackBy(Utils.RoundUp(Type.SizeOf, 4));
-                        //state.LEA(0, Reg.ESP, Reg.EDI); // destination address
-                        //state.MOVL(Type.SizeOf, Reg.ECX); // nbytes
-                        //state.CGenMemCpy();
-                        //return Reg.STACK;
-
+                            throw new InvalidProgramException("floats and structs are not supported");
                         case ExprTypeKind.VOID:
                             throw new InvalidProgramException("How could a variable be void?");
                         // %eax = $0
-                        // state.MOVL(0, Reg.EAX);
+                        // state.MOV(0, Reg.EAX);
                         // return Reg.EAX;
 
                         case ExprTypeKind.FUNCTION:
                             throw new InvalidProgramException("How could a variable be a function designator?");
-                        // %eax = function_name
-                        // state.MOVL(name, Reg.EAX);
-                        // return Reg.EAX;
 
                         case ExprTypeKind.CHAR:
-                            // %eax = [char -> long](off(%ebp))
-                            state.MOVSBL(offset, Reg.EBP, Reg.EAX);
-                            return Reg.EAX;
-
                         case ExprTypeKind.UCHAR:
-                            // %eax = [uchar -> ulong](off(%ebp))
-                            state.MOVZBL(offset, Reg.EBP, Reg.EAX);
-                            return Reg.EAX;
-
                         case ExprTypeKind.SHORT:
-                            // %eax = [short -> long](off(%ebp))
-                            state.MOVSWL(offset, Reg.EBP, Reg.EAX);
-                            return Reg.EAX;
-
                         case ExprTypeKind.USHORT:
-                            // %eax = [ushort -> ulong](off(%ebp))
-                            state.MOVZWL(offset, Reg.EBP, Reg.EAX);
+                            state.MOV(offset, Reg.EBP, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.ARRAY:
@@ -125,61 +88,54 @@ namespace ABT {
                 case Env.EntryKind.GLOBAL:
                     switch (this.Type.Kind) {
                         case ExprTypeKind.CHAR:
-                            state.MOVSBL(this.Name, Reg.EAX);
+                            state.MOV(this.Name, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.UCHAR:
-                            state.MOVZBL(this.Name, Reg.EAX);
+                            state.MOV(this.Name, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.SHORT:
-                            state.MOVSWL(this.Name, Reg.EAX);
+                            state.MOV(this.Name, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.USHORT:
-                            state.MOVZWL(this.Name, Reg.EAX);
+                            state.MOV(this.Name, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.LONG:
                         case ExprTypeKind.ULONG:
                         case ExprTypeKind.POINTER:
-                            state.MOVL(this.Name, Reg.EAX);
+                            state.MOV(this.Name, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.FUNCTION:
-                            state.MOVL("$" + this.Name, Reg.EAX);
+                            state.MOV("$" + this.Name, Reg.EAX);
                             return Reg.EAX;
 
                         case ExprTypeKind.FLOAT:
-                            state.FLDS(this.Name);
-                            return Reg.ST0;
-
                         case ExprTypeKind.DOUBLE:
-                            state.FLDL(this.Name);
-                            return Reg.ST0;
-
-                        case ExprTypeKind.STRUCT_OR_UNION:
-                            state.MOVL($"${this.Name}", Reg.EAX);
-                            return Reg.EAX;
+                        case ExprTypeKind.STRUCT_OR_UNION: 
+                            throw new InvalidProgramException("floats and structs are not supported");
 
                         //state.LEA(name, Reg.ESI); // source address
                         //state.CGenExpandStackBy(Utils.RoundUp(Type.SizeOf, 4));
                         //state.LEA(0, Reg.ESP, Reg.EDI); // destination address
-                        //state.MOVL(Type.SizeOf, Reg.ECX); // nbytes
+                        //state.MOV(Type.SizeOf, Reg.ECX); // nbytes
                         //state.CGenMemCpy();
                         //return Reg.STACK;
 
                         case ExprTypeKind.VOID:
                             throw new InvalidProgramException("How could a variable be void?");
-                        //state.MOVL(0, Reg.EAX);
+                        //state.MOV(0, Reg.EAX);
                         //return Reg.EAX;
 
                         case ExprTypeKind.ARRAY:
-                            state.MOVL($"${this.Name}", Reg.EAX);
+                            state.MOV($"${this.Name}", Reg.EAX);
                             return Reg.EAX;
 
                         default:
-                            throw new InvalidProgramException("cannot get the Value of a " + this.Type.Kind);
+                            throw new InvalidProgramException("cannot get the Value of a " + this.Type.Kind.ToString());
                     }
 
                 case Env.EntryKind.TYPEDEF:
@@ -215,82 +171,31 @@ namespace ABT {
             switch (this.Left.Type.Kind) {
                 case ExprTypeKind.CHAR:
                 case ExprTypeKind.UCHAR:
-                    // pop %ebx
-                    // now %ebx = %Left
-                    state.CGenPopLong(pos, Reg.EBX);
-
-                    // *%ebx = %al
-                    state.MOVB(Reg.AL, 0, Reg.EBX);
-
-                    return Reg.EAX;
-
                 case ExprTypeKind.SHORT:
                 case ExprTypeKind.USHORT:
-                    // pop %ebx
-                    // now %ebx = %Left
-                    state.CGenPopLong(pos, Reg.EBX);
-
-                    // *%ebx = %al
-                    state.MOVW(Reg.AX, 0, Reg.EBX);
-
-                    return Reg.EAX;
-
                 case ExprTypeKind.LONG:
                 case ExprTypeKind.ULONG:
                 case ExprTypeKind.POINTER:
-                    // pop %ebx
-                    // now %ebx = &Left
+                    // pop bx
+                    // now bx = &Left
                     state.CGenPopLong(pos, Reg.EBX);
 
-                    // *%ebx = %al
-                    state.MOVL(Reg.EAX, 0, Reg.EBX);
+                    // *bx = ax
+                    state.MOV(Reg.EAX, 0, Reg.EBX);
 
                     return Reg.EAX;
 
                 case ExprTypeKind.FLOAT:
-                    // pop %ebx
-                    // now %ebx = &Left
-                    state.CGenPopLong(pos, Reg.EBX);
-
-                    // *%ebx = %st(0)
-                    state.FSTS(0, Reg.EBX);
-
-                    return Reg.ST0;
-
                 case ExprTypeKind.DOUBLE:
-                    // pop %ebx
-                    // now %ebx = &Left
-                    state.CGenPopLong(pos, Reg.EBX);
-
-                    // *%ebx = %st(0)
-                    state.FSTL(0, Reg.EBX);
-
-                    return Reg.ST0;
-
                 case ExprTypeKind.STRUCT_OR_UNION:
-                    // pop %edi
-                    // now %edi = &Left
-                    state.CGenPopLong(pos, Reg.EDI);
-
-                    // %esi = &Right
-                    state.MOVL(Reg.EAX, Reg.ESI);
-
-                    // %ecx = nbytes
-                    state.MOVL(this.Left.Type.SizeOf, Reg.ECX);
-
-                    state.CGenMemCpy();
-
-                    // %eax = &Left
-                    state.MOVL(Reg.EDI, Reg.EAX);
-
-                    return Reg.EAX;
+                    throw new InvalidProgramException("structures and floats are not supported");
 
                 case ExprTypeKind.FUNCTION:
                 case ExprTypeKind.VOID:
                 case ExprTypeKind.ARRAY:
                 case ExprTypeKind.INCOMPLETE_ARRAY:
                 default:
-                    throw new InvalidProgramException("cannot assign to a " + this.Type.Kind);
+                    throw new InvalidProgramException("cannot assign to a " + this.Type.Kind.ToString());
             }
         }
     
@@ -317,17 +222,11 @@ namespace ABT {
             // test Cond
             switch (ret) {
                 case Reg.EAX:
-                    state.TESTL(Reg.EAX, Reg.EAX);
+                    state.CMPL(Reg.EAX, Reg.EAX);
                     break;
 
                 case Reg.ST0:
-                    /// Compare Expr with 0.0
-                    /// < see cref = "BinaryComparisonOp.OperateFloat(CGenState)" />
-                    state.FLDZ();
-                    state.FUCOMIP();
-                    state.FSTP(Reg.ST0);
-                    break;
-
+                    throw new InvalidProgramException("floats and structs are not supported");
                 default:
                     throw new InvalidProgramException();
             }
@@ -364,8 +263,8 @@ namespace ABT {
 
             // GCC's IA-32 calling convention
             // Caller is responsible to push all arguments to the stack in reverse order.
-            // Each argument is at least aligned to 4 bytes - even a char would take 4 bytes.
-            // The return Value is stored in %eax, or %st(0), if it is a scalar.
+            // Each argument is aligned to 1 word
+            // The return Value is stored in ax
             // 
             // The stack would look like this after pushing all the arguments:
             // +--------+
@@ -378,28 +277,8 @@ namespace ABT {
             // |  arg2  |
             // +--------+
             // |  arg1  |
-            // +--------+ <- %esp before call
+            // +--------+ <- sp before call
             //
-            // Things are different with structs and unions.
-            // Since structs may not fit in 4 bytes, it has to be returned in memory.
-            // Caller allocates a chunk of memory for the struct and push the address of it as an extra argument.
-            // Callee returns %eax with that address.
-            // 
-            // The stack would look like this after pushing all the arguments:
-            //      +--------+
-            // +--> | struct | <- struct should be returned here.
-            // |    +--------+
-            // |    |  argn  |
-            // |    +--------+
-            // |    |  ....  |
-            // |    +--------+
-            // |    |  arg2  |
-            // |    +--------+
-            // |    |  arg1  |
-            // |    +--------+
-            // +----|  addr  | <- %esp before call
-            //      +--------+
-            // 
 
             state.NEWLINE();
             state.COMMENT($"Before pushing the arguments, stack size = {state.StackSize}.");
@@ -415,8 +294,8 @@ namespace ABT {
                 state.COMMENT("Allocate space for returning stack.");
                 state.CGenExpandStackWithAlignment(this.Type.SizeOf, this.Type.Alignment);
 
-                // Temporarily store the address in %eax.
-                state.MOVL(Reg.ESP, Reg.EAX);
+                // Temporarily store the address in ax.
+                state.MOV(Reg.ESP, Reg.EAX);
 
                 // add an extra argument and move all other arguments upwards.
                 pack_size += ExprType.SIZEOF_POINTER;
@@ -431,8 +310,9 @@ namespace ABT {
 
             // Store the address as the first argument.
             if (this.Type is StructOrUnionType) {
+                throw new InvalidProgramException("floats and structs are not supported");
                 state.COMMENT("Putting extra argument for struct return address.");
-                state.MOVL(Reg.EAX, 0, Reg.ESP);
+                state.MOV(Reg.EAX, 0, Reg.ESP);
                 state.NEWLINE();
             }
 
@@ -459,32 +339,13 @@ namespace ABT {
                         if (ret != Reg.EAX) {
                             throw new InvalidProgramException();
                         }
-                        state.MOVL(Reg.EAX, pos, Reg.EBP);
+                        state.MOV(Reg.EAX, pos, Reg.EBP);
                         break;
 
                     case ExprTypeKind.DOUBLE:
-                        if (ret != Reg.ST0) {
-                            throw new InvalidProgramException();
-                        }
-                        state.FSTPL(pos, Reg.EBP);
-                        break;
-
                     case ExprTypeKind.FLOAT:
-                        if (ret != Reg.ST0) {
-                            throw new InvalidProgramException();
-                        }
-                        state.FSTPL(pos, Reg.EBP);
-                        break;
-
                     case ExprTypeKind.STRUCT_OR_UNION:
-                        if (ret != Reg.EAX) {
-                            throw new InvalidProgramException();
-                        }
-                        state.MOVL(Reg.EAX, Reg.ESI);
-                        state.LEA(pos, Reg.EBP, Reg.EDI);
-                        state.MOVL(arg.Type.SizeOf, Reg.ECX);
-                        state.CGenMemCpy();
-                        break;
+                        throw new InvalidProgramException("floats and structs are not supported");
 
                     default:
                         throw new InvalidProgramException();
@@ -507,13 +368,13 @@ namespace ABT {
                 throw new InvalidProgramException();
             }
 
-            state.CALL("*%eax");
+            state.CALL("ax");
 
             state.COMMENT("Function returned.");
             state.NEWLINE();
 
             if (this.Type.Kind == ExprTypeKind.FLOAT || this.Type.Kind == ExprTypeKind.DOUBLE) {
-                return Reg.ST0;
+                throw new InvalidProgramException("floats and structs are not supported");
             }
             return Reg.EAX;
         }
@@ -543,40 +404,35 @@ namespace ABT {
             // can't be a function designator.
             switch (this.Type.Kind) {
                 case ExprTypeKind.ARRAY:
-                case ExprTypeKind.STRUCT_OR_UNION:
                     state.ADDL(attrib_offset, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.CHAR:
-                    state.MOVSBL(attrib_offset, Reg.EAX, Reg.EAX);
+                    state.MOV(attrib_offset, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.UCHAR:
-                    state.MOVZBL(attrib_offset, Reg.EAX, Reg.EAX);
+                    state.MOV(attrib_offset, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.SHORT:
-                    state.MOVSWL(attrib_offset, Reg.EAX, Reg.EAX);
+                    state.MOV(attrib_offset, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.USHORT:
-                    state.MOVZWL(attrib_offset, Reg.EAX, Reg.EAX);
+                    state.MOV(attrib_offset, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.LONG:
                 case ExprTypeKind.ULONG:
                 case ExprTypeKind.POINTER:
-                    state.MOVL(attrib_offset, Reg.EAX, Reg.EAX);
+                    state.MOV(attrib_offset, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.FLOAT:
-                    state.FLDS(attrib_offset, Reg.EAX);
-                    return Reg.ST0;
-
                 case ExprTypeKind.DOUBLE:
-                    state.FLDL(attrib_offset, Reg.EAX);
-                    return Reg.ST0;
-
+                case ExprTypeKind.STRUCT_OR_UNION:
+                    throw new InvalidProgramException("floats and structs are not supported");
                 default:
                     throw new InvalidProgramException();
             }
@@ -628,50 +484,31 @@ namespace ABT {
                     return Reg.EAX;
 
                 case ExprTypeKind.CHAR:
-                    state.MOVSBL(0, Reg.EAX, Reg.EAX);
+                    state.MOV(0, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.UCHAR:
-                    state.MOVZBL(0, Reg.EAX, Reg.EAX);
+                    state.MOV(0, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.SHORT:
-                    state.MOVSWL(0, Reg.EAX, Reg.EAX);
+                    state.MOV(0, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.USHORT:
-                    state.MOVZWL(0, Reg.EAX, Reg.EAX);
+                    state.MOV(0, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.LONG:
                 case ExprTypeKind.ULONG:
                 case ExprTypeKind.POINTER:
-                    state.MOVL(0, Reg.EAX, Reg.EAX);
+                    state.MOV(0, Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
                 case ExprTypeKind.FLOAT:
-                    state.FLDS(0, Reg.EAX);
-                    return Reg.ST0;
-
                 case ExprTypeKind.DOUBLE:
-                    state.FLDL(0, Reg.EAX);
-                    return Reg.ST0;
-
                 case ExprTypeKind.STRUCT_OR_UNION:
-                    //// %esi = src address
-                    //state.MOVL(Reg.EAX, Reg.ESI);
-
-                    //// %edi = dst address
-                    //state.CGenExpandStackBy(Utils.RoundUp(Type.SizeOf, 4));
-                    //state.LEA(0, Reg.ESP, Reg.EDI);
-
-                    //// %ecx = nbytes
-                    //state.MOVL(Type.SizeOf, Reg.ECX);
-
-                    //state.CGenMemCpy();
-
-                    //return Reg.STACK;
-                    return Reg.EAX;
+                    throw new InvalidProgramException("floats and structs are not supported");
 
                 case ExprTypeKind.VOID:
                 default:

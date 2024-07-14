@@ -9,17 +9,17 @@ namespace ABT {
         // Before the actual calculation, the state is set to this.
         // 
         // regs:
-        // %eax = expr
-        // %ebx = expr
-        // %ecx = &expr
-        // (Yes, both %eax and %ebx are expr.)
+        // ax = expr
+        // bx = expr
+        // cx = &expr
+        // (Yes, both ax and bx are expr.)
         // 
         // stack:
         // +-------+
-        // | ..... | <- %esp
+        // | ..... | <- sp
         // +-------+
         // 
-        // After the calculation, the result should be in %eax,
+        // After the calculation, the result should be in ax,
         // and memory should be updated.
         //
         public abstract void CalcAndSaveLong(CGenState state);
@@ -34,7 +34,7 @@ namespace ABT {
         // Before the actual calculation, the state is set to this.
         // 
         // regs:
-        // %ecx = &expr
+        // cx = &expr
         // 
         // stack:
         // +-------+
@@ -146,7 +146,7 @@ namespace ABT {
                     // | ..... | <- %esp
                     // +-------+
                     // 
-                    state.MOVL(Reg.EAX, Reg.EBX);
+                    state.MOV(Reg.EAX, Reg.EBX);
 
                     // 6. Calculate the new value in %ebx or %eax and save.
                     //    Set %eax to be the return Value.
@@ -186,67 +186,7 @@ namespace ABT {
                     }
 
                 case Reg.ST0:
-                    // Expr is a float.
-
-                    // 4. Pop address to %ecx.
-                    // 
-                    // regs:
-                    // %ecx = &expr
-                    // 
-                    // stack:
-                    // +-------+
-                    // | ..... | <- %esp
-                    // +-------+
-                    // 
-                    state.CGenPopLong(stack_size, Reg.ECX);
-
-                    // 5. Load 1.0 to FPU stack.
-                    // 
-                    // regs:
-                    // %ecx = &expr
-                    // 
-                    // stack:
-                    // +-------+
-                    // | ..... | <- %esp
-                    // +-------+
-                    // 
-                    // float stack:
-                    // +-------+
-                    // | expr  | <- %st(1)
-                    // +-------+
-                    // |  1.0  | <- %st(0)
-                    // +-------+
-                    // 
-                    state.FLD1();
-
-                    // 6. Calculate the new value and save back.
-                    //    Set %st(0) to be the new or original Value.
-                    // 
-                    // regs:
-                    // %ecx = &Expr
-                    // 
-                    // stack:
-                    // +-------+
-                    // | ..... | <- %esp
-                    // +-------+
-                    // 
-                    // float stack:
-                    // +---------------------+
-                    // | expr or (epxr +- 1) | <- %st(0)
-                    // +---------------------+
-                    // 
-                    switch (this.Expr.Type.Kind) {
-                        case ExprTypeKind.FLOAT:
-                            CalcAndSaveFloat(state);
-                            return Reg.ST0;
-
-                        case ExprTypeKind.DOUBLE:
-                            CalcAndSaveDouble(state);
-                            return Reg.ST0;
-
-                        default:
-                            throw new InvalidProgramException();
-                    }
+                    throw new InvalidProgramException("floats and structs are not supported");
 
                 default:
                     throw new InvalidProgramException();
@@ -264,128 +204,120 @@ namespace ABT {
     public sealed partial class PostIncrement {
         public override void CalcAndSaveLong(CGenState state) {
             state.ADDL(1, Reg.EBX);
-            state.MOVL(Reg.EBX, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveWord(CGenState state) {
             state.ADDL(1, Reg.EBX);
-            state.MOVW(Reg.BX, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveByte(CGenState state) {
             state.ADDL(1, Reg.EBX);
-            state.MOVB(Reg.BL, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSavePtr(CGenState state) {
             state.ADDL(this.Expr.Type.SizeOf, Reg.EBX);
-            state.MOVL(Reg.EBX, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveFloat(CGenState state) {
-            state.FADD(1, 0);
-            state.FSTPS(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void CalcAndSaveDouble(CGenState state) {
-            state.FADD(1, 0);
-            state.FSTPL(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class PostDecrement {
         public override void CalcAndSaveLong(CGenState state) {
             state.SUBL(1, Reg.EBX);
-            state.MOVL(Reg.EBX, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveWord(CGenState state) {
             state.SUBL(1, Reg.EBX);
-            state.MOVW(Reg.BX, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveByte(CGenState state) {
             state.SUBL(1, Reg.EBX);
-            state.MOVB(Reg.BL, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSavePtr(CGenState state) {
             state.SUBL(this.Expr.Type.SizeOf, Reg.EBX);
-            state.MOVL(Reg.EBX, 0, Reg.ECX);
+            state.MOV(Reg.EBX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveFloat(CGenState state) {
-            state.FSUB(1, 0);
-            state.FSTPS(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void CalcAndSaveDouble(CGenState state) {
-            state.FSUB(1, 0);
-            state.FSTPL(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class PreIncrement {
         public override void CalcAndSaveLong(CGenState state) {
             state.ADDL(1, Reg.EAX);
-            state.MOVL(Reg.EAX, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveWord(CGenState state) {
             state.ADDL(1, Reg.EAX);
-            state.MOVW(Reg.AX, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveByte(CGenState state) {
             state.ADDL(1, Reg.EAX);
-            state.MOVB(Reg.AL, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSavePtr(CGenState state) {
             state.ADDL(this.Expr.Type.SizeOf, Reg.EAX);
-            state.MOVL(Reg.EAX, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveFloat(CGenState state) {
-            state.FADD(1, 0);
-            state.FSTS(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void CalcAndSaveDouble(CGenState state) {
-            state.FADD(1, 0);
-            state.FSTL(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class PreDecrement {
         public override void CalcAndSaveLong(CGenState state) {
             state.SUBL(1, Reg.EAX);
-            state.MOVL(Reg.EAX, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveWord(CGenState state) {
             state.SUBL(1, Reg.EAX);
-            state.MOVW(Reg.AX, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveByte(CGenState state) {
             state.SUBL(1, Reg.EAX);
-            state.MOVB(Reg.AL, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSavePtr(CGenState state) {
             state.SUBL(this.Expr.Type.SizeOf, Reg.EAX);
-            state.MOVL(Reg.EAX, 0, Reg.ECX);
+            state.MOV(Reg.EAX, 0, Reg.ECX);
         }
 
         public override void CalcAndSaveFloat(CGenState state) {
-            state.FSUB(1, 0);
-            state.FSTS(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void CalcAndSaveDouble(CGenState state) {
-            state.FSUB(1, 0);
-            state.FSTL(0, Reg.ECX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
@@ -406,8 +338,7 @@ namespace ABT {
                     return Reg.EAX;
 
                 case Reg.ST0:
-                    state.FCHS();
-                    return Reg.ST0;
+                    throw new InvalidProgramException("floats and structs are not supported");
 
                 default:
                     throw new InvalidProgramException();
@@ -431,23 +362,13 @@ namespace ABT {
             Reg ret = this.Expr.CGenValue(state);
             switch (ret) {
                 case Reg.EAX:
-                    state.TESTL(Reg.EAX, Reg.EAX);
-                    state.SETE(Reg.AL);
-                    state.MOVZBL(Reg.AL, Reg.EAX);
+                    state.CMPL(Reg.EAX, Reg.EAX);
                     return Reg.EAX;
 
+                // FP comparison is not supported.
                 case Reg.ST0:
-                    /// Compare Expr with 0.0
-                    /// < see cref = "BinaryComparisonOp.OperateFloat(CGenState)" />
-                    state.FLDZ();
-                    state.FUCOMIP();
-                    state.FSTP(Reg.ST0);
-                    state.SETE(Reg.AL);
-                    state.MOVZBL(Reg.AL, Reg.EAX);
-                    return Reg.EAX;
-
                 default:
-                    throw new InvalidProgramException();
+                    throw new Exception("FP comparison is not supported");
             }
         }
     }

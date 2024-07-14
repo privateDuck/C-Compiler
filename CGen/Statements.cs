@@ -18,17 +18,11 @@ namespace ABT {
             // test Cond
             switch (ret) {
                 case Reg.EAX:
-                    state.TESTL(Reg.EAX, Reg.EAX);
+                    state.CMPL(Reg.EAX, Reg.EAX);
                     break;
 
                 case Reg.ST0:
-                    /// Compare Expr with 0.0
-                    /// < see cref = "BinaryComparisonOp.OperateFloat(CGenState)" />
-                    state.FLDZ();
-                    state.FUCOMIP();
-                    state.FSTP(Reg.ST0);
-                    break;
-
+                    throw new InvalidProgramException("floats and structs are not supported");
                 default:
                     throw new InvalidProgramException();
             }
@@ -96,16 +90,12 @@ namespace ABT {
                 this.ExprOpt.Value.CGenValue(state);
 
                 // If the function returns a struct, copy it to the address given by 8(%ebp).
-                if (this.ExprOpt.Value.Type is StructOrUnionType) {
-                    state.MOVL(Reg.EAX, Reg.ESI);
-                    state.MOVL(2 * ExprType.SIZEOF_POINTER, Reg.EBP, Reg.EDI);
-                    state.MOVL(this.ExprOpt.Value.Type.SizeOf, Reg.ECX);
-                    state.CGenMemCpy();
-                    state.MOVL(2 * ExprType.SIZEOF_POINTER, Reg.EBP, Reg.EAX);
+                if (this.ExprOpt.Value.Type is StructOrUnionType || this.ExprOpt.Value.Type is FloatType) {
+                    throw new InvalidProgramException("floats and structs are not supported");
                 }
 
                 // Restore stack size.
-                state.CGenForceStackSizeTo(stack_size);
+                state.CGenForceStackSizeTo(stack_size, "Clean up stack");
             }
             // Jump to end of the function.
             state.JMP(state.ReturnLabel);

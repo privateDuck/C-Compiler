@@ -21,7 +21,7 @@ namespace Driver {
                 throw new InvalidOperationException("Error: not finished parsing");
             }
             this.SyntaxTree = parserResult.Result;
-
+           
             // Semantic analysis
             var semantReturn = this.SyntaxTree.GetTranslnUnit();
             this.AbstractSyntaxTree = semantReturn.Value;

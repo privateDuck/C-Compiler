@@ -1,6 +1,11 @@
-﻿using System;
+﻿using ClangSharp.Interop;
+using LexicalAnalysis;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection.Emit;
+using System.Security.Cryptography;
+using System.Xml.Linq;
 
 namespace CodeGeneration {
     public enum Reg {
@@ -11,17 +16,130 @@ namespace CodeGeneration {
 
         EBP,
         ESP,
-        EDI,
-        ESI,
 
-        AL,
-        AX,
-        BL,
-        BX,
-        CL,
+        ST0 // unused
+    }
 
-        ST0
-    
+    public class ASMProg
+    {
+        readonly List<LineData> lines = [];
+        int lineno = 0;
+
+        public ASMProg()
+        {
+            lines.Add(new LineData(lineno, LineData.LineType.Instruction, "mov ax, main"));
+            lines.Add(new LineData(lineno + 1, LineData.LineType.Instruction, "call main"));
+            lineno += 2;
+        }
+
+        public void AddInstruction(string str)
+        {
+            lines.Add(new LineData(lineno, LineData.LineType.Instruction, str));
+            lineno++;
+        }
+
+        public void AddComment(string str)
+        {
+            lines.Add(new LineData(lineno, LineData.LineType.Comment, str));
+            lineno++;
+        }
+
+        public void AddLabel(string str)
+        {
+            lines.Add(new LineData(lineno, LineData.LineType.Label, str));
+            lineno++;
+        }
+
+        public void AddDeclaration(string str)
+        {
+            lines.Add(new LineData(lineno, LineData.LineType.Declaration, str));
+            lineno++;
+        }
+
+        public void AddEmpty()
+        {
+            lines.Add(new LineData(lineno, LineData.LineType.Empty, ""));
+            lineno++;
+        }
+
+        public override string ToString()
+        {
+            StringWriter writer = new StringWriter();
+            AddEmpty();
+            RearrangeList(lines);
+            writer.WriteLine(".PROGRAM");
+            for (int i = 0; i < lines.Count - 1; i++)
+            {
+                if (lines[i].type == LineData.LineType.Declaration) continue;
+
+                if (lines[i].type == LineData.LineType.Label)
+                {
+                    string space = new string(' ', 8 - lines[i].line.Length);
+                    writer.Write($"{lines[i].line}" + space);
+                    writer.WriteLine($"{lines[i+1].line}");
+                    i++;
+                }
+                else if (lines[i].type == LineData.LineType.Comment)
+                {
+                    writer.WriteLine($"    {lines[i].line}");
+                }
+                else
+                {
+                    writer.WriteLine($"        {lines[i].line}");
+                }
+            }
+            writer.WriteLine();
+            writer.WriteLine(".DATA");
+            writer.WriteLine();
+            foreach (var line in lines)
+            {
+                if (line.type != LineData.LineType.Declaration) continue;
+                writer.WriteLine(line.ToString());
+            }
+            return writer.ToString();
+        }
+
+        readonly struct LineData(int lineno, LineData.LineType type, string line)
+        {
+            public readonly int lineno = lineno;
+            public readonly LineType type = type;
+            public readonly string line = line;
+
+            public override string ToString()
+            {
+                return $"{lineno}   {line}";
+            }
+
+            public enum LineType
+            {
+                Empty,
+                Label,
+                Instruction,
+                Comment,
+                Declaration
+            }
+        }
+
+        static void RearrangeList(List<LineData> list)
+        {
+            for (int i = 0; i < list.Count - 1; i++)
+            {
+                if (list[i].type == LineData.LineType.Label)
+                {
+                    int j = i;
+                    while (j < list.Count - 1 && (list[j + 1].type != LineData.LineType.Instruction && list[j + 1].type != LineData.LineType.Label))
+                    {
+                        Swap(list, j, j + 1);
+                        j++;
+                    }
+                }
+            }
+        }
+
+        static void Swap<T>(List<T> list, int index1, int index2)
+        {
+            (list[index2], list[index1]) = (list[index1], list[index2]);
+        }
     }
 
     public class CGenState {
@@ -32,28 +150,57 @@ namespace CodeGeneration {
         }
 
         public static Dictionary<Reg, String> reg_strs = new Dictionary<Reg, String> {
-            [Reg.EAX] = "%eax",
-            [Reg.ECX] = "%ecx",
-            [Reg.EDX] = "%edx",
-            [Reg.EBX] = "%ebx",
-            [Reg.EBP] = "%ebp",
-            [Reg.ESP] = "%esp",
-            [Reg.EDI] = "%edi",
-            [Reg.ESI] = "%esi",
-            [Reg.AL] = "%al",
-            [Reg.AX] = "%ax",
-            [Reg.BL] = "%bl",
-            [Reg.BX] = "%bx",
-            [Reg.CL] = "%cl",
-            [Reg.ST0] = "%st(0)"
+            [Reg.EAX] = "ax",
+            [Reg.ECX] = "cx",
+            [Reg.EDX] = "dx",
+            [Reg.EBX] = "bx",
+            [Reg.EBP] = "bp",
+            [Reg.ST0] = "st(0)_ununsed",
+            [Reg.ESP] = "sp"/*,
+            [Reg.ESI] = "si",
+            [Reg.EDI] = "edi_unused",
+            [Reg.AL] = "al_ununsed",
+            [Reg.AX] = "ax_ununsed",
+            [Reg.BL] = "bl_ununsed",
+            [Reg.BX] = "bx_ununsed",
+            [Reg.CL] = "cl_ununsed",*/
         };
 
         public static String RegToString(Reg reg) => reg_strs[reg];
+        private int charnum = 0;
+        private bool isLastLabel = false;
+        private string lastLabel = "";
+
+        private void WriteOS(String str) {
+            string space = new string(' ', 8 - charnum);
+            this.os.Write(space + str);
+            charnum = 0;
+        }
+        private void WriteOSNoTab(String str) {
+            charnum = str.Length;
+            this.os.Write(str);
+        }
+        private void WriteLineOSOneTab(String str)
+        {
+            this.os.WriteLine("    " + str);
+        }
+
+        private void WriteLineOS(String str = "") {
+            string space = new string(' ', 8 - charnum);
+            this.os.WriteLine(space + str);
+            charnum = 0;
+        }
+        private void WriteRODATA(String str) => this.rodata.Write(str);
+        private void WriteLineRODATA(String str = "") { 
+
+            this.rodata.WriteLine(str); 
+        }
 
         public CGenState() {
             this.os = new System.IO.StringWriter();
             this.rodata = new System.IO.StringWriter();
-            this.rodata.WriteLine("    .section .rodata");
+            this.asm = new ASMProg();
+            //this.WriteLineRODATA(".section .rodata");
 
             this.rodata_idx = 0;
             this.label_idx = 2;
@@ -64,152 +211,70 @@ namespace CodeGeneration {
 
         public void TEXT() {
             if (this.status != Status.TEXT) {
-                this.os.WriteLine("    .text");
+                //this.WriteLineOS(".text");
                 this.status = Status.TEXT;
             }
         }
 
         public void DATA() {
             if (this.status != Status.DATA) {
-                this.os.WriteLine("    .data");
+                //this.WriteLineOS(".data");
                 this.status = Status.DATA;
             }
         }
 
-        public void GLOBL(String name) => this.os.WriteLine($"    .globl {name}");
+        public void GLOBL(String name) => this.WriteLineOS(/*$".globl {name}"*/);
 
-        public void LOCAL(String name) => this.os.WriteLine($"    .local {name}");
+        public void LOCAL(String name) => this.WriteLineOS($".local {name}");
 
-        public void ALIGN(Int32 align) => this.os.WriteLine($"    .align {align}");
+        public void ALIGN(Int32 align) => this.WriteLineOS($".align {align}");
 
-        public void COMM(String name, Int32 size, Int32 align) => this.os.WriteLine($"    .comm {name},{size},{align}");
+        public void COMM(String name, Int32 size, Int32 align) => this.WriteLineOS($".comm {name},{size},{align}");
 
-        public void BYTE(Int32 value) => this.os.WriteLine($"    .byte {value}");
+        public void BYTE(Int32 value) => this.WriteLineOS($".byte {value}");
 
-        public void ZERO(Int32 size) => this.os.WriteLine($"    .zero {size}");
+        public void ZERO(Int32 size) => this.WriteLineOS($".zero {size}");
 
-        public void VALUE(Int32 value) => this.os.WriteLine($"    .value {value}");
+        public void VALUE(Int32 value) => this.WriteLineOS($".value {value}");
 
-        public void LONG(Int32 value) => this.os.WriteLine($"    .long {value}");
+        public void LONG(Int32 value) { 
+            this.WriteLineOS($"{value}");
+        }
 
+        public void DECLWORD(string name, int value)
+        {
+            asm.AddDeclaration($"{name}:    {value}");
+        }
+
+        public void DECLLOCALWORD(string name, int value)
+        {
+            asm.AddDeclaration($"{name}:    {value} local");
+        }
 
         public void CGenFuncStart(String name) {
-            this.os.WriteLine(name + ":");
-            PUSHL(Reg.EBP);
-            MOVL(Reg.ESP, Reg.EBP);
+            this.WriteOSNoTab(name + ":");
+            this.asm.AddLabel(name + ":");
+            PUSH(Reg.EBP);
+            MOV(Reg.ESP, Reg.EBP);
             this.StackSize = 0;
         }
 
         /// <summary>
-        /// FCHS: %st(0) = -%st(0)
-        /// </summary>
-        public void FCHS() => this.os.WriteLine("    fchs");
-
-        /// <summary>
-        /// FLDS: load float to FPU stack.
-        /// </summary>
-        public void FLDS(String src) => this.os.WriteLine($"    flds {src}");
-
-        public void FLDS(Int32 imm, Reg src) => FLDS($"{imm}({RegToString(src)})");
-
-        /// <summary>
-        /// FLDL: load double to FPU stack.
-        /// </summary>
-        /// <param name="addr">Address.</param>
-        public void FLDL(String addr) => this.os.WriteLine($"    fldl {addr}");
-
-        public void FLDL(Int32 imm, Reg from) => FLDL($"{imm}({RegToString(from)})");
-
-        /// <summary>
-        /// FLD1: push 1.0 to FPU stack.
-        /// </summary>
-        public void FLD1() => this.os.WriteLine("    fld1");
-
-        /// <summary>
-        /// FLD0: push 0.0 to FPU stack.
-        /// </summary>
-        public void FLDZ() => this.os.WriteLine("    fldz");
-
-        /// <summary>
-        /// FSTS: store float from FPU stack.
-        /// </summary>
-        /// <param name="addr"></param>
-        public void FSTS(String addr) => this.os.WriteLine($"    fsts {addr}");
-
-        public void FSTS(Int32 imm, Reg to) => FSTS($"{imm}({RegToString(to)})");
-
-        /// <summary>
-        /// FSTPS: pop float from FPU stack, and store to {addr}.
-        /// </summary>
-        public void FSTPS(String addr) => this.os.WriteLine($"    fstps {addr}");
-
-        public void FSTPS(Int32 imm, Reg to) => FSTPS($"{imm}({RegToString(to)})");
-
-        /// <summary>
-        /// FSTL: store double from FPU stack.
-        /// </summary>
-        public void FSTL(String addr) => this.os.WriteLine($"    fstl {addr}");
-
-        public void FSTL(Int32 imm, Reg to) => FSTL($"{imm}({RegToString(to)})");
-
-        /// <summary>
-        /// FSTPL: pop from FPU and store *double*.
-        /// </summary>
-        public void FSTPL(String addr) => this.os.WriteLine($"    fstpl {addr}");
-
-        public void FSTPL(Int32 imm, Reg to) => FSTPL($"{imm}({RegToString(to)})");
-
-        /// <summary>
-        /// FSTP: copy %st(0) to dst, then pop %st(0).
-        /// </summary>
-        public void FSTP(String dst) => this.os.WriteLine($"    fstp {dst}");
-
-        public void FSTP(Reg dst) => FSTP(RegToString(dst));
-
-        /// <summary>
-        /// FADD: calculate %st(op1) + %st(op2) and rewrite %st(op2).
-        /// </summary>
-        public void FADD(Int32 op1, Int32 op2) => this.os.WriteLine($"    fadd %st({op1}), %st({op2})");
-
-        /// <summary>
-        /// FADDP: pop operands from %st(0) and %st(1),
-        ///        push addition result back to %st(0).
-        /// </summary>
-        public void FADDP() => this.os.WriteLine("    faddp");
-
-        /// <summary>
-        /// FADD: calculate %st(op1) + %st(op2) and rewrite %st(op2).
-        /// </summary>
-        public void FSUB(Int32 op1, Int32 op2) => this.os.WriteLine($"    fsub %st({op1}), %st({op2})");
-
-        /// <summary>
-        /// FSUBP: pop operands from %st(0) and %st(1),
-        ///        push %st(0) / %st(1) back to %st(0).
-        /// </summary>
-        public void FSUBP() => this.os.WriteLine("    fsubp");
-
-        /// <summary>
-        /// FMULP: pop operands from %st(0) and %st(1), push multiplication result back to %st(0).
-        /// </summary>
-        public void FMULP() => this.os.WriteLine("    fmulp");
-
-        /// <summary>
-        /// FDIVP: pop operands from %st(0) and %st(1), push %st(0) / %st(1) back to %st(0).
-        /// </summary>
-        public void FDIVP() => this.os.WriteLine("    fdivp");
-
-        /// <summary>
-        /// PUSHL: push long into stack.
+        /// PUSH: push long into stack.
         /// </summary>
         /// <remarks>
-        /// PUSHL changes the size of the stack, which should be tracked carefully.
-        /// So, PUSHL is set private. Consider using <see cref="CGenPushLong"/>
+        /// PUSH changes the size of the stack, which should be tracked carefully.
+        /// So, PUSH is set private. Consider using <see cref="CGenPushLong"/>
         /// </remarks>
-        private void PUSHL(String src) => this.os.WriteLine($"    pushl {src}");
+        private void PUSH(String src)
+        {
+            this.WriteLineOS($"push {src}");
+            asm.AddInstruction($"push {src}");
+        }
 
-        private void PUSHL(Reg src) => PUSHL(RegToString(src));
+        private void PUSH(Reg src) => PUSH(RegToString(src));
 
-        private void PUSHL(Int32 imm) => PUSHL($"${imm}");
+        private void PUSH(Int32 imm) => PUSH($"{imm}");
 
         /// <summary>
         /// POPL: pop long from stack.
@@ -218,119 +283,61 @@ namespace CodeGeneration {
         /// POPL changes the size of the stack, which should be tracked carefully.
         /// So, POPL is set private. Consider using <see cref="CGenPopLong"/>
         /// </remarks>
-        private void POPL(String dst) => this.os.WriteLine($"    popl {dst}");
+        private void POP(String dst)
+        {
+            this.WriteLineOS($"pop {dst}");
+            asm.AddInstruction($"pop {dst}");
+        }
 
-        private void POPL(Reg dst) => POPL(RegToString(dst));
+        private void POP(Reg dst) => POP(RegToString(dst));
 
         /// <summary>
-        /// MOVL: move a 4-byte long
+        /// MOVL: move a 2-byte short
         /// </summary>
-        public void MOVL(String src, String dst) => this.os.WriteLine($"    movl {src}, {dst}");
-
-        public void MOVL(String src, Reg dst) => MOVL(src, RegToString(dst));
-
-        public void MOVL(Int32 imm, String dst) => MOVL($"${imm}", dst);
-
-        public void MOVL(Int32 imm, Reg dst) => MOVL($"${imm}", RegToString(dst));
-
-        public void MOVL(Reg src, Reg dst) => MOVL(RegToString(src), RegToString(dst));
-
-        public void MOVL(Reg src, Int32 offset, Reg dst) => MOVL(RegToString(src), $"{offset}({RegToString(dst)})");
-
-        public void MOVL(Int32 offset, Reg src, Reg dst) => MOVL($"{offset}({RegToString(src)})", RegToString(dst));
-
-        /// <summary>
-        /// MOVZBL: move a byte and zero-extend to a 4-byte long
-        /// </summary>
-        public void MOVZBL(String src, String dst) => this.os.WriteLine($"    movzbl {src}, {dst}");
-
-        public void MOVZBL(String src, Reg dst) => MOVZBL(src, RegToString(dst));
-
-        public void MOVZBL(Int32 offset, Reg src, Reg dst) => MOVZBL($"{offset}({RegToString(src)})", RegToString(dst));
-
-        public void MOVZBL(Reg src, Reg dst) => MOVZBL(RegToString(src), RegToString(dst));
-
-        /// <summary>
-        /// MOVSBL: move a byte and sign-extend to a 4-byte long
-        /// </summary>
-        public void MOVSBL(String src, String dst) => this.os.WriteLine($"    movsbl {src}, {dst}");
-
-        public void MOVSBL(String src, Reg dst) => MOVSBL(src, RegToString(dst));
-
-        public void MOVSBL(Int32 offset, Reg src, Reg dst) => MOVSBL($"{offset}({RegToString(src)})", RegToString(dst));
-
-        public void MOVSBL(Reg src, Reg dst) => MOVSBL(RegToString(src), RegToString(dst));
-
-        /// <summary>
-        /// MOVB: move a byte
-        /// </summary>
-        public void MOVB(String src, String dst) => this.os.WriteLine($"    movb {src}, {dst}");
-
-        public void MOVB(Reg from, Int32 imm, Reg to) {
-            MOVB(RegToString(from), imm + "(" + RegToString(to) + ")");
+        public void MOV(String src, String dst)
+        {
+            this.WriteLineOS($"mov {dst}, {src}");
+            asm.AddInstruction($"mov {dst}, {src}");
         }
 
-        public void MOVB(Reg from, Reg to) => MOVB(RegToString(from), RegToString(to));
+        public void MOV(String src, Reg dst) => MOV(src, RegToString(dst));
 
-        /// <summary>
-        /// MOVW: move a 2-byte word
-        /// </summary>
-        public void MOVW(String from, String to) {
-            this.os.WriteLine("    movw " + from + ", " + to);
-        }
+        public void MOV(Int32 imm, String dst) => MOV($"{imm}", dst);
 
-        public void MOVW(Reg from, Int32 imm, Reg to) {
-            MOVW(RegToString(from), imm + "(" + RegToString(to) + ")");
-        }
+        public void MOV(Int32 imm, Reg dst) => MOV($"{imm}", RegToString(dst));
 
-        /// <summary>
-        /// MOVZWL: move a 2-byte word and zero-extend to a 4-byte long
-        /// </summary>
-        public void MOVZWL(String from, String to) {
-            this.os.WriteLine("    movzwl " + from + ", " + to);
-        }
+        public void MOV(Reg src, Reg dst) => MOV(RegToString(src), RegToString(dst));
 
-        public void MOVZWL(String from, Reg to) {
-            MOVZWL(from, RegToString(to));
-        }
+        public void MOV(Reg src, Int32 offset, Reg dst) => MOV(RegToString(src), $"{offset}[{RegToString(dst)}]");
 
-        public void MOVZWL(Int32 offset, Reg from, Reg to) {
-            MOVZWL(offset + RegToString(from), RegToString(to));
-        }
-
-        public void MOVZWL(Reg src, Reg dst) => MOVZWL(RegToString(src), RegToString(dst));
-
-        /// <summary>
-        /// MOVSWL: move a 2-byte word and sign-extend to a 4-byte long
-        /// </summary>
-        public void MOVSWL(String from, String to) {
-            this.os.WriteLine("    movswl " + from + ", " + to);
-        }
-
-        public void MOVSWL(String from, Reg to) {
-            MOVSWL(from, RegToString(to));
-        }
-
-        public void MOVSWL(Int32 offset, Reg from, Reg to) {
-            MOVSWL(offset + RegToString(from), RegToString(to));
-        }
-
-        public void MOVSWL(Reg src, Reg dst) => MOVSWL(RegToString(src), RegToString(dst));
+        public void MOV(Int32 offset, Reg src, Reg dst) => MOV($"{offset}[{RegToString(src)}]", RegToString(dst));
 
         // LEA
         // ===
         // 
-        public void LEA(String addr, String dst) => this.os.WriteLine($"    lea {addr}, {dst}");
+        public void LEA(String addr, String dst, string comment = "") {
+            if (comment == "")
+            {
+                this.WriteLineOS($"lea {dst}, {addr}");
+                asm.AddInstruction($"lea {dst}, {addr}");
+            }
+            else
+            {
+                this.WriteLineOS($"lea {dst}, {addr} # {comment}");
+                asm.AddInstruction($"lea {dst}, {addr} # {comment}");
+            }
+        }
 
-        public void LEA(String addr, Reg dst) => LEA(addr, RegToString(dst));
+        public void LEA(String addr, Reg dst, string comment = "") => LEA(addr, RegToString(dst), comment);
 
-        public void LEA(Int32 offset, Reg src, Reg dst) => LEA($"{offset}({RegToString(src)})", RegToString(dst));
+        public void LEA(Int32 offset, Reg src, Reg dst, string comment = "") => LEA($"{offset}[{RegToString(src)}]", RegToString(dst), comment);
 
         // CALL
         // ====
         // 
         public void CALL(String addr) {
-            this.os.WriteLine("    call " + addr);
+            this.WriteLineOS("call " + addr);
+            asm.AddInstruction("call " + addr);
         }
 
         // CGenExpandStack
@@ -353,9 +360,9 @@ namespace CodeGeneration {
             CGenExpandStackBy(nbytes);
         }
 
-        public void CGenForceStackSizeTo(Int32 nbytes) {
+        public void CGenForceStackSizeTo(Int32 nbytes, string comment = "") {
             this.StackSize = nbytes;
-            LEA(-nbytes, Reg.EBP, Reg.ESP);
+            LEA(-nbytes, Reg.EBP, Reg.ESP, comment);
         }
 
         public void CGenShrinkStackBy(Int32 nbytes) {
@@ -363,120 +370,126 @@ namespace CodeGeneration {
             ADDL(nbytes, Reg.ESP);
         }
 
-        public void CGenExpandStackBy4Bytes(String comment = "") {
-            this.StackSize += 4;
-            SUBL(4, Reg.ESP);
+        public void CGenExpandStackByOneWord(String comment = "") {
+            this.StackSize += 1;
+            SUBL(1, Reg.ESP);
         }
 
-        public void CGenExpandStackBy8Bytes(String comment = "") {
-            this.StackSize += 8;
-            SUBL(8, Reg.ESP);
-        }
-
-        public void CGenShrinkStackBy4Bytes(String comment = "") {
-            this.StackSize -= 4;
-            ADDL(4, Reg.ESP);
-        }
-
-        public void CGenShrinkStackBy8Bytes(String comment = "") {
-            this.StackSize -= 8;
-            ADDL(8, Reg.ESP);
+        public void CGenShrinkStackByOneWord(String comment = "") {
+            this.StackSize -= 1;
+            ADDL(1, Reg.ESP);
         }
 
         public void LEAVE() {
-            //os.WriteLine("    leave # pop frame, restore %ebp");
-            this.os.WriteLine("    leave");
+            //WriteLineOS("leave # pop frame, restore %ebp");
+            this.WriteLineOS("leave");
+            asm.AddInstruction("leave");
         }
 
         public void RET() {
-            //os.WriteLine("    ret # pop old %eip, jump");
-            this.os.WriteLine("    ret");
+            //WriteLineOS("ret # pop old %eip, jump");
+            this.WriteLineOS("ret");
+            asm.AddInstruction("ret");
         }
 
         public void NEWLINE() {
-            this.os.WriteLine();
+            this.WriteLineOS();
+            asm.AddEmpty();
         }
 
         public void COMMENT(String comment) {
-            this.os.WriteLine("    # " + comment);
+            this.WriteLineOSOneTab("# " + comment);
+            asm.AddComment("# " + comment);
         }
 
         /// <summary>
         /// NEG addr: addr = -addr
         /// </summary>
-        public void NEG(String addr) => this.os.WriteLine($"    neg {addr}");
+        public void NEG(String addr) {
+            this.WriteLineOS($"neg {addr}");
+            asm.AddInstruction($"neg {addr}");
+        }
 
         public void NEG(Reg dst) => NEG(RegToString(dst));
 
         /// <summary>
         /// NOT: bitwise not
         /// </summary>
-        public void NOT(String addr) => this.os.WriteLine($"    not {addr}");
+        public void NOT(String addr) {
+            this.WriteLineOS($"not {addr}");
+            asm.AddInstruction($"not {addr}");
+        }
 
         public void NOT(Reg dst) => NOT(RegToString(dst));
 
         /// <summary>
         /// ADDL: add long
         /// </summary>
-        public void ADDL(String er, String ee, String comment = "") {
-            this.os.Write($"    addl {er}, {ee}");
+        public void ADDL(String src, String dest, String comment = "") {
+            this.WriteOS($"add {dest}, {src}");
+            asm.AddInstruction($"add {dest}, {src}");
             if (comment == "") {
-                this.os.WriteLine();
+                this.WriteLineOS();
             } else {
-                this.os.WriteLine($" # {comment}");
+                this.WriteLineOSOneTab($" # {comment}");
+                asm.AddComment("# " + comment);
             }
         }
 
-        public void ADDL(Int32 er, Reg ee, String comment = "") => ADDL($"${er}", RegToString(ee), comment);
+        public void ADDL(Int32 value, Reg dest, String comment = "") => ADDL($"{value}", RegToString(dest), comment);
 
         public void ADDL(Reg er, Reg ee, String comment = "") => ADDL(RegToString(er), RegToString(ee), comment);
 
         /// <summary>
         /// SUBL: subtract long
         /// </summary>
-        public void SUBL(String er, String ee, String comment = "") {
-            this.os.Write($"    subl {er}, {ee}");
+        public void SUBL(String src, String dest, String comment = "") {
+            this.WriteOS($"sub {dest},  {src}");
+            asm.AddInstruction($"sub {dest}, {src}");
             if (comment == "") {
-                this.os.WriteLine();
+                this.WriteLineOS();
             } else {
-                this.os.WriteLine(" # " + comment);
+                this.WriteLineOSOneTab(" # " + comment);
+                asm.AddComment("# " + comment);
             }
         }
 
-        private void SUBL(Int32 er, String ee, String comment = "") => SUBL($"${er}", ee, comment);
+        private void SUBL(Int32 er, String ee, String comment = "") => SUBL($"{er}", ee, comment);
 
-        public void SUBL(Int32 er, Reg ee, String comment = "") => SUBL($"${er}", RegToString(ee), comment);
+        public void SUBL(Int32 er, Reg ee, String comment = "") => SUBL($"{er}", RegToString(ee), comment);
 
         public void SUBL(Reg er, Reg ee, String comment = "") => SUBL(RegToString(er), RegToString(ee), comment);
 
         public override String ToString() {
-            return this.os.ToString() + this.rodata;
+            return asm.ToString();//this.os.ToString() + this.rodata;
         }
 
         /// <summary>
         /// ANDL er, ee
         /// ee = er & ee
         /// </summary>
-        public void ANDL(String er, String ee) => this.os.WriteLine($"    andl {er}, {ee}");
+        public void ANDL(String src, String dest)
+        {
+            this.WriteLineOS($"and {dest},  {src}");
+            asm.AddInstruction($"and {dest},  {src}");
+        }
 
         public void ANDL(Reg er, Reg ee) => ANDL(RegToString(er), RegToString(ee));
 
-        public void ANDL(Int32 er, Reg ee) => ANDL($"${er}", RegToString(ee));
-
-        public void ANDB(String er, String ee) => this.os.WriteLine($"    andb {er}, {ee}");
-
-        public void ANDB(Int32 er, Reg ee) => ANDB($"${er}", RegToString(ee));
+        public void ANDL(Int32 er, Reg ee) => ANDL($"{er}", RegToString(ee));
 
         /// <summary>
         /// ORL er, ee
         ///     ee = ee | er
         /// </summary>
-        public void ORL(String er, String ee, String comment = "") {
-            this.os.Write("    orl " + er + ", " + ee);
+        public void ORL(String src, String dest, String comment = "") {
+            this.WriteOS($"or {dest},  {src}");
+            asm.AddInstruction($"or {dest},  {src}");
             if (comment == "") {
-                this.os.WriteLine();
+                this.WriteLineOS();
             } else {
-                this.os.WriteLine(" # " + comment);
+                this.WriteLineOSOneTab(" # " + comment);
+                asm.AddComment("# " + comment);
             }
         }
 
@@ -489,8 +502,9 @@ namespace CodeGeneration {
         /// ee = ee << er
         /// Note that there is only one Kind of lshift.
         /// </summary>
-        public void SALL(String er, String ee) {
-            this.os.WriteLine("    sall " + er + ", " + ee);
+        public void SALL(String shift, String operand) {
+            this.WriteLineOS($"shl {operand}, { shift}");
+            asm.AddInstruction($"shl {operand}, {shift}");
         }
 
         public void SALL(Reg er, Reg ee) {
@@ -501,8 +515,9 @@ namespace CodeGeneration {
         /// SARL er, ee (arithmetic shift)
         /// ee = ee >> er (append sign bit)
         /// </summary>
-        public void SARL(String er, String ee) {
-            this.os.WriteLine($"    sarl {er}, {ee}");
+        public void SARL(String shift, String operand) {
+            this.WriteLineOS($"sar {operand}, {shift}");
+            asm.AddInstruction($"sar {operand}, {shift}");
         }
 
         public void SARL(Reg er, Reg ee) => SARL(RegToString(er), RegToString(ee));
@@ -511,20 +526,22 @@ namespace CodeGeneration {
         /// SHRL er, ee (logical shift)
         /// ee = ee >> er (append 0)
         /// </summary>
-        public void SHRL(String er, String ee) {
-            this.os.WriteLine($"    shrl {er}, {ee}");
+        public void SHRL(String shift, String operand) {
+            this.WriteLineOS($"shr {operand}, {shift}");
+            asm.AddInstruction("shr " + operand + ", " + shift);
         }
 
         public void SHRL(Reg er, Reg ee) => SHRL(RegToString(er), RegToString(ee));
 
-        public void SHRL(Int32 er, Reg ee) => SHRL($"${er}", RegToString(ee));
+        public void SHRL(Int32 er, Reg ee) => SHRL($"{er}", RegToString(ee));
 
         /// <summary>
         /// XORL er, ee
         /// ee = ee ^ er
         /// </summary>
-        public void XORL(String er, String ee) {
-            this.os.WriteLine("    xorl " + er + ", " + ee);
+        public void XORL(String src, String dest) {
+            this.WriteLineOS($"xor {dest},  {src}");
+            asm.AddInstruction($"xor {dest},  {src}");
         }
 
         public void XORL(Reg er, Reg ee) {
@@ -534,19 +551,21 @@ namespace CodeGeneration {
         /// <summary>
         /// IMUL: signed multiplication. %edx:%eax = %eax * {addr}.
         /// </summary>
-        public void IMUL(String addr) {
-            this.os.WriteLine($"    imul {addr}");
+/*        public void IMUL(String addr) {
+            this.WriteLineOS($"imul {addr}");
         }
 
         public void IMUL(Reg er) {
             IMUL(RegToString(er));
         }
+*/
 
         /// <summary>
         /// MUL: unsigned multiplication. %edx:%eax = %eax * {addr}.
         /// </summary>
         public void MUL(String addr) {
-            this.os.WriteLine($"    mul {addr}");
+            this.WriteLineOS($"mul {addr}");
+            asm.AddInstruction($"mul {addr}");
         }
 
         public void MUL(Reg er) {
@@ -556,22 +575,24 @@ namespace CodeGeneration {
         /// <summary>
         /// CLTD: used before division. clear %edx.
         /// </summary>
-        public void CLTD() => this.os.WriteLine("    cltd");
+        //public void CLTD() => this.WriteLineOS("cltd");
 
         /// <summary>
         /// IDIVL: signed division. %eax = %edx:%eax / {addr}.
         /// </summary>
-        public void IDIVL(String addr) {
-            this.os.WriteLine($"    idivl {addr}");
+/*        public void IDIVL(String addr) {
+            this.WriteLineOS($"idivl {addr}");
         }
 
         public void IDIVL(Reg er) => IDIVL(RegToString(er));
+*/
 
         /// <summary>
         /// IDIVL: unsigned division. %eax = %edx:%eax / {addr}.
         /// </summary>
         public void DIVL(String addr) {
-            this.os.WriteLine($"    divl {addr}");
+            this.WriteLineOS($"div {addr}");
+            asm.AddInstruction($"div {addr}");
         }
 
         public void DIVL(Reg er) => DIVL(RegToString(er));
@@ -580,19 +601,22 @@ namespace CodeGeneration {
         /// CMPL: compare based on subtraction.
         /// Note that the order is reversed, i.e. ee comp er.
         /// </summary>
-        public void CMPL(String er, String ee) {
-            this.os.WriteLine($"    cmpl {er}, {ee}");
+        public void CMPL(String right, String left) {
+            this.WriteLineOS($"cmp {left}, {right}");
+            asm.AddInstruction($"cmp {left}, {right}");
         }
 
         public void CMPL(Reg er, Reg ee) => CMPL(RegToString(er), RegToString(ee));
 
-        public void CMPL(Int32 imm, Reg ee) => CMPL($"${imm}", RegToString(ee));
+        public void CMPL(Int32 imm, Reg ee) => CMPL($"{imm}", RegToString(ee));
 
         /// <summary>
-        /// TESTL: used like testl %eax, %eax: compare %eax with zero.
+        /// TEST: used like test ax, ax: compare ax with zero.
         /// </summary>
-        public void TESTL(String er, String ee) {
-            this.os.WriteLine($"    testl {er}, {ee}");
+        public void TESTL(String right, String left)
+        {
+            this.WriteLineOS($"test {left}, {right}");
+            asm.AddInstruction($"test {left}, {right}");
         }
 
         public void TESTL(Reg er, Reg ee) => TESTL(RegToString(er), RegToString(ee));
@@ -600,8 +624,10 @@ namespace CodeGeneration {
         /// <summary>
         /// SETE: set if equal to.
         /// </summary>
-        public void SETE(String dst) {
-            this.os.WriteLine($"    sete {dst}");
+        public void SETE(String dst)
+        {
+            this.WriteLineOS($"sete {dst}");
+            asm.AddInstruction($"sete {dst}");
         }
 
         public void SETE(Reg dst) => SETE(RegToString(dst));
@@ -609,14 +635,19 @@ namespace CodeGeneration {
         /// <summary>
         /// SETNE: set if not equal to.
         /// </summary>
-        public void SETNE(String dst) => this.os.WriteLine($"    setne {dst}");
+        public void SETNE(String dst)
+        {
+            this.WriteLineOS($"setne {dst}");
+            asm.AddInstruction($"setne {dst}");
+        }
         public void SETNE(Reg dst) => SETNE(RegToString(dst));
 
         /// <summary>
         /// SETG: set if greater than (signed).
         /// </summary>
         public void SETG(String dst) {
-            this.os.WriteLine($"    setg {dst}");
+            this.WriteLineOS($"setg {dst}");
+            asm.AddInstruction($"setg {dst}");
         }
 
         public void SETG(Reg dst) => SETG(RegToString(dst));
@@ -625,7 +656,8 @@ namespace CodeGeneration {
         /// SETGE: set if greater or equal to (signed).
         /// </summary>
         public void SETGE(String dst) {
-            this.os.WriteLine($"    setge {dst}");
+            this.WriteLineOS($"setge {dst}");
+            asm.AddInstruction($"setge {dst}");
         }
 
         public void SETGE(Reg dst) => SETGE(RegToString(dst));
@@ -634,7 +666,8 @@ namespace CodeGeneration {
         /// SETL: set if less than (signed).
         /// </summary>
         public void SETL(String dst) {
-            this.os.WriteLine($"    setl {dst}");
+            this.WriteLineOS($"setl {dst}");
+            asm.AddInstruction($"setl {dst}");
         }
 
         public void SETL(Reg dst) => SETL(RegToString(dst));
@@ -643,7 +676,8 @@ namespace CodeGeneration {
         /// SETLE: set if less than or equal to (signed).
         /// </summary>
         public void SETLE(String dst) {
-            this.os.WriteLine($"    setle {dst}");
+            this.WriteLineOS($"setle {dst}");
+            asm.AddInstruction($"setle {dst}");
         }
 
         public void SETLE(Reg dst) => SETLE(RegToString(dst));
@@ -652,7 +686,8 @@ namespace CodeGeneration {
         /// SETB: set if below (unsigned).
         /// </summary>
         public void SETB(String dst) {
-            this.os.WriteLine($"    setb {dst}");
+            this.WriteLineOS($"setb {dst}");
+            asm.AddInstruction($"setb {dst}");
         }
 
         public void SETB(Reg dst) => SETB(RegToString(dst));
@@ -661,7 +696,8 @@ namespace CodeGeneration {
         /// SETNB: set if not below (unsigned).
         /// </summary>
         public void SETNB(String dst) {
-            this.os.WriteLine($"    setnb {dst}");
+            this.WriteLineOS($"setnb {dst}");
+            asm.AddInstruction($"setnb {dst}");
         }
 
         public void SETNB(Reg dst) => SETNB(RegToString(dst));
@@ -670,7 +706,8 @@ namespace CodeGeneration {
         /// SETA: set if above (unsigned).
         /// </summary>
         public void SETA(String dst) {
-            this.os.WriteLine($"    seta {dst}");
+            this.WriteLineOS($"seta {dst}");
+            asm.AddInstruction($"seta {dst}");
         }
 
         public void SETA(Reg dst) => SETA(RegToString(dst));
@@ -679,105 +716,57 @@ namespace CodeGeneration {
         /// SETNA: set if not above (unsigned).
         /// </summary>
         public void SETNA(String dst) {
-            this.os.WriteLine($"    setna {dst}");
+            this.WriteLineOS($"setna {dst}");
+            asm.AddInstruction($"setna {dst}");
         }
 
         public void SETNA(Reg dst) => SETNA(RegToString(dst));
 
-        /// <summary>
-        /// FUCOMIP: unordered comparison: %st(0) vs %st(1).
-        /// </summary>
-        public void FUCOMIP() => this.os.WriteLine("    fucomip %st(1), %st");
+        public void JMP(Int32 label)
+        {
+            this.WriteLineOS($"jmp .L{label}");
+            asm.AddInstruction($"jmp L{label}");
+        }
 
-        public void JMP(Int32 label) => this.os.WriteLine($"    jmp .L{label}");
+        public void JZ(Int32 label)
+        {
+            this.WriteLineOS($"jz .L{label}");
+            asm.AddInstruction($"jz L{label}");
+        }
 
-        public void JZ(Int32 label) => this.os.WriteLine($"    jz .L{label}");
+        public void JNZ(Int32 label)
+        {
+            this.WriteLineOS($"jz .L{label}");
+            asm.AddInstruction($"jz L{label}");
+        }
 
-        public void JNZ(Int32 label) => this.os.WriteLine($"    jz .L{label}");
-
-        public void CLD() => this.os.WriteLine("    cld");
-
-        public void STD() => this.os.WriteLine("    std");
+        public void JC(int label) => this.WriteLineOS($"jc .L{label}");
+        public void JE(int label) => this.WriteLineOS($"je .L{label}");
+        public void JNE(int label) => this.WriteLineOS($"jne .L{label}");
+        public void JL(int label) => this.WriteLineOS($"jl .L{label}");
+        public void JLE(int label) => this.WriteLineOS($"jle .L{label}"); 
+        public void JG(int label) => this.WriteLineOS($"jg .L{label}");
+        public void JGE(int label) => this.WriteLineOS($"jge .L{label}");
 
         public Int32 CGenPushLong(Reg src) {
-            PUSHL(src);
-            this.StackSize += 4;
+            PUSH(src);
+            this.StackSize += 1;
             return this.StackSize;
         }
 
         public Int32 CGenPushLong(Int32 imm) {
-            PUSHL(imm);
-            this.StackSize += 4;
+            PUSH(imm);
+            this.StackSize += 1;
             return this.StackSize;
         }
 
         public void CGenPopLong(Int32 saved_size, Reg dst) {
             if (this.StackSize == saved_size) {
-                POPL(dst);
-                this.StackSize -= 4;
+                POP(dst);
+                this.StackSize -= 1;
             } else {
-                MOVL(-saved_size, Reg.EBP, dst);
+                MOV(-saved_size, Reg.EBP, dst);
             }
-        }
-
-        public Int32 CGenPushFloat() {
-            CGenExpandStackBy4Bytes();
-            FSTS(0, Reg.ESP);
-            return this.StackSize;
-        }
-
-        public Int32 CGenPushFloatP() {
-            CGenExpandStackBy4Bytes();
-            FSTPS(0, Reg.ESP);
-            return this.StackSize;
-        }
-
-        public Int32 CGenPushDouble() {
-            CGenExpandStackBy8Bytes();
-            FSTL(0, Reg.ESP);
-            return this.StackSize;
-        }
-
-        public Int32 CGenPushDoubleP() {
-            CGenExpandStackBy8Bytes();
-            FSTPL(0, Reg.ESP);
-            return this.StackSize;
-        }
-
-        public void CGenPopDouble(Int32 saved_size) {
-            FLDL(-saved_size, Reg.EBP);
-            if (saved_size == this.StackSize) {
-                CGenShrinkStackBy8Bytes();
-            }
-        }
-
-        public void CGenPopFloat(Int32 saved_size) {
-            FLDL(-saved_size, Reg.EBP);
-            if (saved_size == this.StackSize) {
-                CGenShrinkStackBy4Bytes();
-            }
-        }
-
-        private void FISTL(String dst) => this.os.WriteLine($"    fistl {dst}");
-
-        private void FISTL(Int32 offset, Reg dst) => FISTL($"{offset}({RegToString(dst)})");
-
-        private void FILDL(String dst) => this.os.WriteLine($"    fildl {dst}");
-
-        private void FILDL(Int32 offset, Reg dst) => FILDL($"{offset}({RegToString(dst)})");
-
-        public void CGenConvertFloatToLong() {
-            CGenExpandStackBy4Bytes();
-            FISTL(0, Reg.ESP);
-            MOVL(0, Reg.ESP, Reg.EAX);
-            CGenShrinkStackBy4Bytes();
-        }
-
-        public void CGenConvertLongToFloat() {
-            CGenExpandStackBy4Bytes();
-            MOVL(Reg.EAX, 0, Reg.ESP);
-            FILDL(0, Reg.ESP);
-            CGenShrinkStackBy4Bytes();
         }
 
         /// <summary>
@@ -788,13 +777,17 @@ namespace CodeGeneration {
         /// 3) %ecx = number of bytes
         /// </summary>
         public void CGenMemCpy() {
+            SUBL(1, Reg.ECX);
+            int start = RequestLabel();
+            int end = RequestLabel();
+            /*JZ()
             MOVB(Reg.CL, Reg.AL);
             SHRL(2, Reg.ECX);
             CLD();
             this.os.WriteLine("    rep movsl");
             MOVB(Reg.AL, Reg.CL);
             ANDB(3, Reg.CL);
-            this.os.WriteLine("    rep movsb");
+            this.os.WriteLine("    rep movsb");*/
         }
 
         /// <summary>
@@ -805,55 +798,42 @@ namespace CodeGeneration {
         /// 3) %ecx = number of bytes
         /// </summary>
         public void CGenMemCpyReversed() {
-            ADDL(Reg.ECX, Reg.ESI);
-            ADDL(Reg.ECX, Reg.EDI);
-            MOVL(Reg.ECX, Reg.EAX);
-
-            ANDL(3, Reg.ECX); // now %ecx = 0, 1, 2, or 3
-            STD();
-            this.os.WriteLine("    rep movsb");
-
-            MOVL(Reg.EAX, Reg.ECX);
-            ANDL(~3, Reg.ECX);
-            SHRL(2, Reg.ECX);
-            this.os.WriteLine("    rep movsl");
-
-            CLD();
+            
         }
 
         public String CGenLongConst(Int32 val) {
-            String name = ".LC" + this.rodata_idx;
-            this.rodata.WriteLine("    .align 4");
-            this.rodata.WriteLine(name + ":");
-            this.rodata.WriteLine("    .long " + val);
+            String name = "LC" + this.rodata_idx;
+            //this.WriteLineRODATA(".align 4");
+            this.WriteRODATA(name + ": ");
+            this.WriteLineRODATA(val.ToString());
             this.rodata_idx++;
-            return name;
-        }
-
-        public String CGenLongLongConst(Int32 lo, Int32 hi) {
-            String name = ".LC" + this.rodata_idx;
-            this.rodata.WriteLine("    .align 8");
-            this.rodata.WriteLine(name + ":");
-            this.rodata.WriteLine("    .long " + lo);
-            this.rodata.WriteLine("    .long " + hi);
-            this.rodata_idx++;
+            asm.AddDeclaration($"{name}:    {val}");
             return name;
         }
 
         public String CGenString(String str) {
-            String name = ".LC" + this.rodata_idx;
-            this.rodata.WriteLine(name + ":");
-            this.rodata.WriteLine("    .String \"" + str + "\"");
+            String name = "LC" + this.rodata_idx;
+            this.WriteRODATA(name + ": ");
+            this.WriteLineRODATA("\"" + str + "\"");
             this.rodata_idx++;
+            asm.AddDeclaration($"{name}:    \"{str}\"");
             return name;
         }
 
-        public void CGenLabel(String label) => this.os.WriteLine($"{label}:");
+        public void CGenLabel(String label)
+        {
+            isLastLabel = true;
+            lastLabel = label;
+            this.WriteOSNoTab($".{label}:");
+            asm.AddLabel($"{label}:");
+        }
 
-        public void CGenLabel(Int32 label) => CGenLabel($".L{label}");
+        public void CGenLabel(Int32 label) => CGenLabel($"L{label}");
 
-        private readonly System.IO.StringWriter os;
-        private readonly System.IO.StringWriter rodata;
+        private readonly StringWriter os;
+        private readonly StringWriter rodata;
+        public readonly ASMProg asm;
+
         private Int32 rodata_idx;
         public Int32 label_idx;
 
@@ -945,5 +925,6 @@ namespace CodeGeneration {
             this.return_label = -1;
             this._goto_labels.Clear();
         }
+
     }
 }

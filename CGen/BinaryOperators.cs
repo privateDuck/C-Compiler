@@ -17,21 +17,21 @@ namespace ABT {
         public abstract void OperateLong(CGenState state);
 
         /// <summary>
-        /// Before calling this method, %eax = Left, %ebx = Right
+        /// Before calling this method, ax = Left, %ebx = Right
         /// This method should let %eax = %eax op %ebx
         /// </summary>
         public abstract void OperateULong(CGenState state);
 
-        // %eax = left, %ebx = right, stack unchanged
+        // ax = left, bx = right, stack unchanged
         private void CGenPrepareIntegralOperands(CGenState state) {
             // 1. Load Left to EAX.
             // 
             // regs:
-            // %eax = Left
+            // ax = Left
             // 
             // stack:
             // +-----+
-            // | ... | <- %esp
+            // | ... | <- sp
             // +-----+
             // 
             if (this.Left.CGenValue(state) != Reg.EAX) {
@@ -41,13 +41,13 @@ namespace ABT {
             // 2. Push Left to stack.
             // 
             // regs:
-            // %eax = Left
+            // ax = Left
             // 
             // stack:
             // +-----+
             // | ... |
             // +-----+
-            // | Left | <- %esp has decreased by 4
+            // | Left | <- sp has decreased by 1
             // +-----+
             // 
             Int32 stack_size = state.CGenPushLong(Reg.EAX);
@@ -79,7 +79,7 @@ namespace ABT {
             // | ... | <- %esp has moved back.
             // +-----+
             // 
-            state.MOVL(Reg.EAX, Reg.EBX);
+            state.MOV(Reg.EAX, Reg.EBX);
             state.CGenPopLong(stack_size, Reg.EAX);
         }
 
@@ -135,182 +135,12 @@ namespace ABT {
         /// </summary>
         public abstract void OperateDouble(CGenState state);
 
-        /// <summary>
-        /// 1. %st(0) = left, %st(1) = right, stack unchanged
-        /// 2. OperateDouble
-        /// </summary>
         public void CGenFloat(CGenState state) {
-            // 1. Load Left to ST0. Now the float stack should only contain one element.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | Left | <- %st(0)
-            // +-----+
-            // 
-            var ret = this.Left.CGenValue(state);
-            if (ret != Reg.ST0) {
-                throw new InvalidOperationException();
-            }
-
-            // 2. Pop from float stack, push into memory stack. Now the float stack should be empty.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... |
-            // | Left | <- %esp has decreased by 4
-            // +-----+
-            //
-            // float stack:
-            // +-----+    empty
-            // 
-            Int32 stack_size = state.CGenPushFloatP();
-
-            // 3. Load Right to ST0. Now the float stack should only contain one element.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... |
-            // | Left | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | Right | <- %st(0)
-            // +-----+
-            // 
-            ret = this.Right.CGenValue(state);
-            if (ret != Reg.ST0) {
-                throw new InvalidOperationException();
-            }
-
-            // 4. Pop double from memory stack, push into float stack. Now both Left and Right are in float stack.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | Right | <- %st(1)
-            // +-----+
-            // | Left | <- %st(0)
-            // +-----+
-            // 
-            state.CGenPopFloat(stack_size);
-
-            // 5. Perform operation. FPU would pop both operands and push answer back in.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | ans | <- %st(0)
-            // +-----+
-            // 
-            OperateFloat(state);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
-        /// <summary>
-        /// 1. %st(0) = left, %st(1) = right, stack unchanged
-        /// 2. OperateDouble
-        /// </summary>
         public void CGenDouble(CGenState state) {
-            // 1. Load Left to ST0. Now the float stack should only contain one element.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | Left | <- %st(0)
-            // +-----+
-            // 
-            var ret = this.Left.CGenValue(state);
-            if (ret != Reg.ST0) {
-                throw new InvalidOperationException();
-            }
-
-            // 2. Pop from float stack, push into memory stack. Now the float stack should be empty.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... |
-            // | Left | <- %esp has decreased by 8
-            // +-----+
-            //
-            // float stack:
-            // +-----+    empty
-            // 
-            Int32 stack_size = state.CGenPushDoubleP();
-
-            // 3. Load Right to ST0. Now the float stack should only contain one element.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... |
-            // | Left | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | Right | <- %st(0)
-            // +-----+
-            // 
-            ret = this.Right.CGenValue(state);
-            if (ret != Reg.ST0) {
-                throw new InvalidOperationException();
-            }
-
-            // 4. Pop double from memory stack, push into float stack. Now both Left and Right are in float stack.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | Right | <- %st(1)
-            // +-----+
-            // | Left | <- %st(0)
-            // +-----+
-            // 
-            state.CGenPopDouble(stack_size);
-
-            // 5. Perform operation. FPU would pop both operands and push answer back in.
-            //
-            // memory stack:
-            // +-----+
-            // |     |
-            // | ... | <- %esp
-            // +-----+
-            //
-            // float stack:
-            // +-----+
-            // | ans | <- %st(0)
-            // +-----+
-            // 
-            OperateDouble(state);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         /// <summary>
@@ -318,10 +148,8 @@ namespace ABT {
         /// 2. Operate{Float, Double}
         /// </summary>
         public void CGenArithmetic(CGenState state) {
-            if (this.Type is FloatType) {
-                CGenFloat(state);
-            } else if (this.Type is DoubleType) {
-                CGenDouble(state);
+            if (this.Type is FloatType || this.Type is DoubleType) {
+                throw new InvalidProgramException("floats and structs are not supported");
             } else {
                 CGenIntegral(state);
             }
@@ -332,7 +160,7 @@ namespace ABT {
         public override sealed Reg CGenValue(CGenState state) {
             CGenArithmetic(state);
             if (this.Type is FloatType || this.Type is DoubleType) {
-                return Reg.ST0;
+                throw new InvalidProgramException("floats and structs are not supported");
             } else if (this.Type is LongType || this.Type is ULongType) {
                 return Reg.EAX;
             } else {
@@ -353,7 +181,6 @@ namespace ABT {
         public override sealed void OperateLong(CGenState state) {
             state.CMPL(Reg.EBX, Reg.EAX);
             SetLong(state);
-            state.MOVZBL(Reg.AL, Reg.EAX);
         }
 
         /// <summary>
@@ -363,7 +190,6 @@ namespace ABT {
         public override sealed void OperateULong(CGenState state) {
             state.CMPL(Reg.EBX, Reg.EAX);
             SetULong(state);
-            state.MOVZBL(Reg.AL, Reg.EAX);
         }
 
         /// <summary>
@@ -371,36 +197,8 @@ namespace ABT {
         /// <para>After: with SetFloat, %eax = left op right, stack unchanged.</para>
         /// </summary>
         public override sealed void OperateFloat(CGenState state) {
-            // In the beginning, %st(0) = Left, %st(1) = Right.
-            // 
-            // float stack:
-            // +-----+
-            // | rhs | <- %st(1)
-            // +-----+
-            // | lfs | <- %st(0)
-            // +-----+
-            // 
-
-            // 1. Do comparison between %st(0) and %st(1).
-            //    Pop one Value from FPU stack.
-            // 
-            // float stack:
-            // +-----+
-            // | rhs | <- %st(0)
-            // +-----+
-            // 
-            state.FUCOMIP();
-
-            // 2. Pop another Value from FPU stack.
-            // 
-            // float stack:
-            // +-----+ empty
-            // 
-            state.FSTP(Reg.ST0);
-
-            // 3. Set bit based on comparison result.
-            SetFloat(state);
-            state.MOVZBL(Reg.AL, Reg.EAX);
+            throw new InvalidProgramException("floats and structs are not supported");
+            
         }
 
         /// <summary>
@@ -408,36 +206,7 @@ namespace ABT {
         /// After: with SetDouble, %eax = left op right, stack unchanged.
         /// </summary>
         public override sealed void OperateDouble(CGenState state) {
-            // In the beginning, %st(0) = Left, %st(1) = Right.
-            // 
-            // float stack:
-            // +-----+
-            // | rhs | <- %st(1)
-            // +-----+
-            // | lhs | <- %st(0)
-            // +-----+
-            // 
-
-            // 1. Do comparison between %st(0) and %st(1).
-            //    Pop one Value from FPU stack.
-            // 
-            // float stack:
-            // +-----+
-            // | rhs | <- %st(0)
-            // +-----+
-            // 
-            state.FUCOMIP();
-
-            // 2. Pop another Value from FPU stack.
-            // 
-            // float stack:
-            // +-----+ empty
-            // 
-            state.FSTP(Reg.ST0);
-
-            // 3. Set bit based on comparison result.
-            SetDouble(state);
-            state.MOVZBL(Reg.AL, Reg.EAX);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override sealed Reg CGenValue(CGenState state) {
@@ -448,7 +217,7 @@ namespace ABT {
 
     public sealed partial class Multiply {
         public override void OperateLong(CGenState state) {
-            state.IMUL(Reg.EBX);
+            state.MUL(Reg.EBX);
         }
 
         public override void OperateULong(CGenState state) {
@@ -456,45 +225,45 @@ namespace ABT {
         }
 
         public override void OperateFloat(CGenState state) {
-            state.FMULP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void OperateDouble(CGenState state) {
-            state.FMULP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class Divide {
         public override void OperateLong(CGenState state) {
-            state.CLTD();
-            state.IDIVL(Reg.EBX);
+            // Removed CLTD
+            state.DIVL(Reg.EBX); // Changed to unsigned
         }
 
         public override void OperateULong(CGenState state) {
-            state.CLTD();
+            // Removed CLTD
             state.DIVL(Reg.EBX);
         }
 
         public override void OperateFloat(CGenState state) {
-            state.FDIVP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void OperateDouble(CGenState state) {
-            state.FDIVP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class Modulo {
         public override void OperateLong(CGenState state) {
-            state.CLTD();
-            state.IDIVL(Reg.EBX);
-            state.MOVL(Reg.EDX, Reg.EAX);
+            // Removed CLTD
+            state.DIVL(Reg.EBX);// Changed to unsigned
+            state.MOV(Reg.EDX, Reg.EAX);
         }
 
         public override void OperateULong(CGenState state) {
-            state.CLTD();
+            // Removed CLTD
             state.DIVL(Reg.EBX);
-            state.MOVL(Reg.EDX, Reg.EAX);
+            state.MOV(Reg.EDX, Reg.EAX);
         }
     }
 
@@ -540,7 +309,7 @@ namespace ABT {
 
     public sealed partial class RShift {
         public override void OperateLong(CGenState state) {
-            state.SARL(Reg.EBX, Reg.EAX);
+            state.SHRL(Reg.EBX, Reg.EAX); // SAR to SHR
         }
 
         public override void OperateULong(CGenState state) {
@@ -558,11 +327,11 @@ namespace ABT {
         }
 
         public override void OperateFloat(CGenState state) {
-            state.FADDP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void OperateDouble(CGenState state) {
-            state.FADDP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
@@ -576,11 +345,11 @@ namespace ABT {
         }
 
         public override void OperateFloat(CGenState state) {
-            state.FSUBP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void OperateDouble(CGenState state) {
-            state.FSUBP();
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
@@ -588,109 +357,109 @@ namespace ABT {
 
     public sealed partial class GEqual {
         public override void SetLong(CGenState state) {
-            state.SETGE(Reg.AL);
+            state.SETGE(Reg.EAX);
         }
 
         public override void SetULong(CGenState state) {
-            state.SETNB(Reg.AL);
+            state.SETNB(Reg.EAX);
         }
 
         public override void SetFloat(CGenState state) {
-            state.SETNB(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void SetDouble(CGenState state) {
-            state.SETNB(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class Greater {
         public override void SetLong(CGenState state) {
-            state.SETG(Reg.AL);
+            state.SETG(Reg.EAX);
         }
 
         public override void SetULong(CGenState state) {
-            state.SETA(Reg.AL);
+            state.SETA(Reg.EAX);
         }
 
         public override void SetFloat(CGenState state) {
-            state.SETA(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void SetDouble(CGenState state) {
-            state.SETA(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class LEqual {
         public override void SetLong(CGenState state) {
-            state.SETLE(Reg.AL);
+            state.SETLE(Reg.EAX);
         }
 
         public override void SetULong(CGenState state) {
-            state.SETNA(Reg.AL);
+            state.SETNA(Reg.EAX);
         }
 
         public override void SetFloat(CGenState state) {
-            state.SETNA(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void SetDouble(CGenState state) {
-            state.SETNA(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class Less {
         public override void SetLong(CGenState state) {
-            state.SETL(Reg.AL);
+            state.SETL(Reg.EAX);
         }
 
         public override void SetULong(CGenState state) {
-            state.SETB(Reg.AL);
+            state.SETB(Reg.EAX);
         }
 
         public override void SetFloat(CGenState state) {
-            state.SETB(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void SetDouble(CGenState state) {
-            state.SETB(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class Equal {
         public override void SetLong(CGenState state) {
-            state.SETE(Reg.AL);
+            state.SETE(Reg.EAX);
         }
 
         public override void SetULong(CGenState state) {
-            state.SETE(Reg.AL);
+            state.SETE(Reg.EAX);
         }
 
         public override void SetFloat(CGenState state) {
-            state.SETE(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void SetDouble(CGenState state) {
-            state.SETE(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
     public sealed partial class NotEqual {
         public override void SetLong(CGenState state) {
-            state.SETNE(Reg.AL);
+            state.SETNE(Reg.EAX);
         }
 
         public override void SetULong(CGenState state) {
-            state.SETNE(Reg.AL);
+            state.SETNE(Reg.EAX);
         }
 
         public override void SetFloat(CGenState state) {
-            state.SETNE(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
 
         public override void SetDouble(CGenState state) {
-            state.SETNE(Reg.AL);
+            throw new InvalidProgramException("floats and structs are not supported");
         }
     }
 
@@ -709,11 +478,7 @@ namespace ABT {
                     break;
 
                 case Reg.ST0:
-                    state.FLDZ();
-                    state.FUCOMIP();
-                    state.FSTP(Reg.ST0);
-                    state.JZ(label_reset);
-                    break;
+                    throw new InvalidProgramException("floats and structs are not supported");
 
                 default:
                     throw new InvalidProgramException();
@@ -727,23 +492,19 @@ namespace ABT {
                     break;
 
                 case Reg.ST0:
-                    state.FLDZ();
-                    state.FUCOMIP();
-                    state.FSTP(Reg.ST0);
-                    state.JZ(label_reset);
-                    break;
+                    throw new InvalidProgramException("floats and structs are not supported");
 
                 default:
                     throw new InvalidProgramException();
             }
 
-            state.MOVL(1, Reg.EAX);
+            state.MOV(1, Reg.EAX);
 
             state.JMP(label_finish);
 
             state.CGenLabel(label_reset);
 
-            state.MOVL(0, Reg.EAX);
+            state.MOV(0, Reg.EAX);
 
             state.CGenLabel(label_finish);
 
@@ -809,10 +570,7 @@ namespace ABT {
                     break;
 
                 case Reg.ST0:
-                    state.FLDZ();
-                    state.FUCOMIP();
-                    state.FSTP(Reg.ST0);
-                    state.JNZ(label_set);
+                    throw new InvalidProgramException("floats and structs are not supported");
                     break;
 
                 default:
@@ -827,23 +585,20 @@ namespace ABT {
                     break;
 
                 case Reg.ST0:
-                    state.FLDZ();
-                    state.FUCOMIP();
-                    state.FSTP(Reg.ST0);
-                    state.JNZ(label_set);
+                    throw new InvalidProgramException("floats and structs are not supported");
                     break;
 
                 default:
                     throw new InvalidProgramException();
             }
 
-            state.MOVL(0, Reg.EAX);
+            state.MOV(0, Reg.EAX);
 
             state.JMP(label_finish);
 
             state.CGenLabel(label_set);
 
-            state.MOVL(1, Reg.EAX);
+            state.MOV(1, Reg.EAX);
 
             state.CGenLabel(label_finish);
 

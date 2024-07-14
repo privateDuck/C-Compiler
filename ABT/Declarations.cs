@@ -22,7 +22,7 @@ namespace ABT {
         public override String ToString() {
             String str = "[" + this.scs + "] ";
             str += this.name;
-            str += " : " + this.type;
+            str += " : WORD"/* + this.type*/;
             return str;
         }
 
@@ -62,9 +62,9 @@ namespace ABT {
 
                     state.DATA();
 
-                    state.ALIGN(ExprType.ALIGN_LONG);
+                    //state.ALIGN(ExprType.ALIGN_LONG);
 
-                    state.CGenLabel(this.name);
+                    //state.CGenLabel(this.name);
 
                     Int32 last = 0;
                     initr.Iterate(this.type, (Int32 offset, Expr expr) => {
@@ -85,14 +85,17 @@ namespace ABT {
                                 throw new NotImplementedException();
                             case ExprTypeKind.LONG:
                                 state.LONG(((ConstLong)expr).Value);
+                                state.DECLWORD(this.name, ((ConstLong)expr).Value);
                                 break;
 
                             case ExprTypeKind.ULONG:
                                 state.LONG((Int32)((ConstULong)expr).Value);
+                                state.DECLWORD(this.name, (Int32)((ConstULong)expr).Value);
                                 break;
 
                             case ExprTypeKind.POINTER:
                                 state.LONG((Int32)((ConstPtr)expr).Value);
+                                state.DECLWORD(this.name, (Int32)((ConstPtr)expr).Value);
                                 break;
 
                             case ExprTypeKind.FLOAT:
@@ -132,6 +135,7 @@ namespace ABT {
                             // .local name
                             // .comm name,size,align
                             state.LOCAL(this.name);
+                            state.DECLLOCALWORD(this.name, 0);
                             break;
 
                         case StorageClass.TYPEDEF:
@@ -170,34 +174,30 @@ namespace ABT {
                     switch (expr.Type.Kind) {
                         case ExprTypeKind.CHAR:
                         case ExprTypeKind.UCHAR:
-                            state.MOVB(Reg.EAX, pos + offset, Reg.EBP);
+                            state.MOV(Reg.EAX, pos + offset, Reg.EBP);
                             break;
 
                         case ExprTypeKind.SHORT:
                         case ExprTypeKind.USHORT:
-                            state.MOVW(Reg.EAX, pos + offset, Reg.EBP);
+                            state.MOV(Reg.EAX, pos + offset, Reg.EBP);
                             break;
 
                         case ExprTypeKind.DOUBLE:
-                            state.FSTPL(pos + offset, Reg.EBP);
-                            break;
-
                         case ExprTypeKind.FLOAT:
-                            state.FSTPS(pos + offset, Reg.EBP);
-                            break;
+                        case ExprTypeKind.STRUCT_OR_UNION:
+                            throw new InvalidProgramException("floats and structs are not supported");
 
                         case ExprTypeKind.LONG:
                         case ExprTypeKind.ULONG:
                         case ExprTypeKind.POINTER:
-                            state.MOVL(Reg.EAX, pos + offset, Reg.EBP);
+                            state.MOV(Reg.EAX, pos + offset, Reg.EBP);
                             break;
 
-                        case ExprTypeKind.STRUCT_OR_UNION:
-                            state.MOVL(Reg.EAX, Reg.ESI);
+                            /*state.MOV(Reg.EAX, Reg.ESI);
                             state.LEA(pos + offset, Reg.EBP, Reg.EDI);
-                            state.MOVL(expr.Type.SizeOf, Reg.ECX);
+                            state.MOV(expr.Type.SizeOf, Reg.ECX);
                             state.CGenMemCpy();
-                            break;
+                            break;*/
 
                         case ExprTypeKind.ARRAY:
                         case ExprTypeKind.FUNCTION:

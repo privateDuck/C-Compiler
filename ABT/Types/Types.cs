@@ -114,18 +114,18 @@ namespace ABT {
         }
 
         public const Int32 SIZEOF_CHAR = 1;
-        public const Int32 SIZEOF_SHORT = 2;
-        public const Int32 SIZEOF_LONG = 4;
-        public const Int32 SIZEOF_FLOAT = 4;
-        public const Int32 SIZEOF_DOUBLE = 8;
-        public const Int32 SIZEOF_POINTER = 4;
+        public const Int32 SIZEOF_SHORT = 1;
+        public const Int32 SIZEOF_LONG = 1;
+        public const Int32 SIZEOF_FLOAT = 1;
+        public const Int32 SIZEOF_DOUBLE = 1;
+        public const Int32 SIZEOF_POINTER = 1;
 
         public const Int32 ALIGN_CHAR = 1;
-        public const Int32 ALIGN_SHORT = 2;
-        public const Int32 ALIGN_LONG = 4;
-        public const Int32 ALIGN_FLOAT = 4;
-        public const Int32 ALIGN_DOUBLE = 4;
-        public const Int32 ALIGN_POINTER = 4;
+        public const Int32 ALIGN_SHORT = 1;
+        public const Int32 ALIGN_LONG = 1;
+        public const Int32 ALIGN_FLOAT = 1;
+        public const Int32 ALIGN_DOUBLE = 1;
+        public const Int32 ALIGN_POINTER = 1;
 
         public abstract ExprTypeKind Kind { get; }
 

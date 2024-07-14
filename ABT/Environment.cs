@@ -110,7 +110,7 @@ namespace ABT {
                 Scope scope = new Scope(this);
                 switch (loc) {
                 case EntryKind.STACK:
-                    scope.esp_pos -= Utils.RoundUp(type.SizeOf, 4);
+                    scope.esp_pos -= Utils.RoundUp(type.SizeOf, 1);
                     scope.locals.Add(new Utils.StoreEntry(name, type, scope.esp_pos));
                     break;
                 case EntryKind.GLOBAL:
